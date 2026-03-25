@@ -574,7 +574,7 @@ function rnd(){
           <div class="pg">PFF #${p.pff_rank} · ${(p.need_vs_worst||0)>=0?'+':''}${(p.need_vs_worst||0).toFixed(1)} vs weakest</div></div>
         <div></div>
         <div class="tc" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${ic(p.impact_score||0)}">${p.impact_score||0}</div>
-        <div class="tc" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${nc(p.roster_need||0)}">${p.roster_need||0}${(()=>{const b=BASELINE_NEED[p.name];if(b==null)return '';const d=(p.roster_need||0)-b;if(d===0)return '';return `<div style="font-size:9px;font-family:'DM Mono',monospace;color:var(--muted);line-height:1">${d>0?'+':''}${d}</div>`;})()}</div>
+        <div class="tc" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${nc(p.roster_need||0)}">${p.roster_need||0}${(()=>{const b=BASELINE_NEED[p.name];if(b==null)return '';const d=(p.roster_need||0)-b;if(d===0)return '';return `<div style="font-size:9px;font-family:'DM Mono',monospace;color:var(--muted);line-height:1">${d>0?'+':''}${d}</div>`;})()}${(p.need_delta_now||p.need_delta_fut)?`<div style="font-size:8px;font-family:'DM Mono',monospace;color:var(--muted);line-height:1.5;margin-top:2px">${(p.need_delta_now||0)>0?'+':''}${(p.need_delta_now||0).toFixed(1)} now<br>${(p.need_delta_fut||0)>0?'+':''}${(p.need_delta_fut||0).toFixed(1)} fut</div>`:''}</div>
         <div class="tc" style="font-family:'Bebas Neue',sans-serif;font-size:17px;color:var(--gold)">${p.proj_price>1?'$'+p.proj_price:'—'}</div>
         <div></div></div>`;
     });
@@ -716,12 +716,16 @@ function showAlert(p,price){
   const msg=proj===0?`Logged at $${price}.`:
     Math.abs(diff)<5?`Paid $${price} — right at projection ($${proj}).`:
     diff>0?`$${diff} above projection.`:`$${Math.abs(diff)} below projection — value pick.`;
-  document.getElementById('al').style.display='block';
-  document.getElementById('al').innerHTML=`<div class="alert-card">
+  const alEl=document.getElementById('al');
+  alEl.style.display='block';
+  alEl.innerHTML=`<div class="alert-card" style="position:relative">
+    <div onclick="document.getElementById('al').style.display='none'" style="position:absolute;top:6px;right:8px;font-size:13px;color:var(--muted);cursor:pointer;line-height:1" title="Dismiss">✕</div>
     <div style="font-family:'Bebas Neue',sans-serif;font-size:19px;color:var(--accent)">${p&&p.display_name?p.display_name:'Player'} — $${price}</div>
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted2);margin-top:4px">${msg}</div>
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px">LSU remaining: $${mb()}</div>
   </div>`;
+  clearTimeout(window._alertTimer);
+  window._alertTimer=setTimeout(()=>{alEl.style.display='none';},6000);
 }
 
 function updateValueMetrics(){
@@ -787,7 +791,8 @@ function updateScarcity(){
     const rookieHigh=PLAYERS.filter(p=>p.position===pos&&p.type!=='FA'&&(p.impact_score||0)>=IMPACT_THRESH);
     const faHigh=PLAYERS.filter(p=>p.position===pos&&p.type==='FA'&&(p.blended_ppg||0)>=(FA_PPG_THRESH[pos]||10));
     const allHigh=[...rookieHigh,...faHigh];
-    const remaining=allHigh.filter(p=>!sold.has(p.name));
+    const activeBidNames=new Set(activeBids.map(b=>b.player.name));
+    const remaining=allHigh.filter(p=>!sold.has(p.name)&&!activeBidNames.has(p.name));
     const targeted=remaining.filter(p=>targets.has(p.name));
     if(!allHigh.length) continue;
     const pct=remaining.length/allHigh.length;
@@ -901,11 +906,11 @@ function _ol(r, yd) {
   }
   const ht = hard.reduce((s, p) => s + _ep(p, yd), 0);
 
-  // Flex 1: best unused RB/WR/TE
-  const flex1pool = [...rbs, ...wrs, ...tes].filter(p => !used.has(p))
-                      .sort((a, b) => _ep(b, yd) - _ep(a, yd));
-  let w1 = 0;
-  if (flex1pool.length) { w1 = _ep(flex1pool[0], yd); used.add(flex1pool[0]); }
+  // Hard WR/TE slot
+  const wrtepool = [...wrs, ...tes].filter(p => !used.has(p))
+                     .sort((a, b) => _ep(b, yd) - _ep(a, yd));
+  let wt = 0;
+  if (wrtepool.length) { wt = _ep(wrtepool[0], yd); used.add(wrtepool[0]); }
 
   // Superflex: best unused QB or RB/WR/TE
   const sfpool = [...qbs, ...rbs, ...wrs, ...tes].filter(p => !used.has(p))
@@ -913,7 +918,7 @@ function _ol(r, yd) {
   let s1 = 0;
   if (sfpool.length) { s1 = _ep(sfpool[0], yd); used.add(sfpool[0]); }
 
-  // 3 more RB/WR/TE flex
+  // 3 offensive flex (RB/WR/TE)
   const flex3pool = [...rbs, ...wrs, ...tes].filter(p => !used.has(p))
                       .sort((a, b) => _ep(b, yd) - _ep(a, yd));
   const f3 = flex3pool.slice(0, 3).reduce((s, p) => { used.add(p); return s + _ep(p, yd); }, 0);
@@ -923,7 +928,7 @@ function _ol(r, yd) {
                     .sort((a, b) => _ep(b, yd) - _ep(a, yd));
   const d3 = idppool.slice(0, 3).reduce((s, p) => s + _ep(p, yd), 0);
 
-  return ht + w1 + s1 + f3 + d3;
+  return ht + wt + s1 + f3 + d3;
 }
 
 // Build the live LSU roster: base ROSTER + any LSU draft wins this session
@@ -999,6 +1004,7 @@ function removeBidTile(id){
   activeBids=activeBids.filter(b=>b.id!==id);
   if(expandedBidId===id) expandedBidId=null;
   renderBidTiles();
+  updateScarcity();
 }
 
 function updateBidField(id, field, val){
@@ -1102,14 +1108,23 @@ function buildDetailPanel(b){
   const ksKeys=Object.keys(ks).slice(0,4);
   const warns=(p.size_warnings||[]).map(w=>`<span style="color:#f59e0b;font-size:9px">⚠ ${w.col} ${w.label}</span>`).join(' ');
   const pos=p.position, THRESH=40;
-  const allHigh=PLAYERS.filter(x=>x.position===pos&&(x.impact_score||0)>=THRESH);
-  const remainNow=allHigh.filter(x=>!sold.has(x.name));
+  const FA_PPG_THRESH2={'QB':15,'RB':10,'WR':10,'TE':10,'DE':10,'DT':10,'LB':10,'S':10,'CB':10};
+  const faThresh=FA_PPG_THRESH2[pos]||10;
+  const rookieHigh=PLAYERS.filter(x=>x.position===pos&&x.type!=='FA'&&(x.impact_score||0)>=THRESH);
+  const faHigh=PLAYERS.filter(x=>x.position===pos&&x.type==='FA'&&(x.blended_ppg||0)>=faThresh);
+  const allHigh=[...rookieHigh,...faHigh];
+  const otherBidNames=new Set(activeBids.filter(b2=>b2.id!==b.id).map(b2=>b2.player.name));
+  const remainNow=allHigh.filter(x=>!sold.has(x.name)&&!otherBidNames.has(x.name));
   const remainIfWon=remainNow.filter(x=>x.name!==p.name);
   const pctNow=allHigh.length?remainNow.length/allHigh.length:0;
   const pctAfter=allHigh.length?remainIfWon.length/allHigh.length:0;
   const colNow=pctNow<=0.3?'var(--accent3)':pctNow<=0.6?'var(--gold)':'var(--accent2)';
   const colAfter=pctAfter<=0.3?'var(--accent3)':pctAfter<=0.6?'var(--gold)':'var(--accent2)';
-  const nextBest=remainIfWon.slice().sort((a,z)=>(z.impact_score||0)-(a.impact_score||0)).slice(0,3);
+  const nextBest=remainIfWon.slice().sort((a,z)=>{
+    const sa=a.type==='FA'?(a.blended_ppg||0)*3:(a.impact_score||0);
+    const sz=z.type==='FA'?(z.blended_ppg||0)*3:(z.impact_score||0);
+    return sz-sa;
+  }).slice(0,3);
   const team=b.teamName?TEAMS.find(t=>t.name===b.teamName):null;
   const budInfo=team?tb(team.name):null;
   let html=`<div style="background:var(--s2);border:1px solid var(--accent);border-radius:12px;padding:14px;margin-top:4px;animation:fi .18s ease">
