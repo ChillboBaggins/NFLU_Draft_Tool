@@ -488,7 +488,7 @@ function applyState(s){
   targets.clear();if(s.targets)s.targets.forEach(n=>targets.add(n));
   activeBids=s.activeBids?s.activeBids.map(b=>{const p=PLAYERS.find(x=>x.name===b.playerName);return p?{id:b.id,player:p,bidAmt:b.bidAmt,teamName:b.teamName}:null;}).filter(Boolean):[];
   if(s.bidIdSeq!=null)bidIdSeq=s.bidIdSeq;
-  needStack.length=0;if(s.needStack)s.needStack.forEach(snap=>needStack.push(snap));
+  needStack.length=0;if(s.needStack)s.needStack.forEach(entries=>{const snap={};entries.forEach(e=>{snap[e.n]=e.v;});needStack.push(snap);});
   if(s.pf)pf=s.pf;
 }
 
@@ -500,7 +500,7 @@ function saveState(){
     targets:[...targets],
     activeBids:activeBids.map(b=>({id:b.id,playerName:b.player.name,bidAmt:b.bidAmt,teamName:b.teamName})),
     bidIdSeq,
-    needStack,
+    needStack:needStack.map(snap=>Object.entries(snap).map(([n,v])=>({n,v}))),
     pf
   };
   firebase.database().ref('nflu_session').set(state);
