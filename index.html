@@ -508,6 +508,8 @@ function saveState(){
 }
 
 function loadState(){
+  // Block Firebase writes until the initial snapshot has loaded
+  _applyingRemoteState=true;
   // Apply localStorage immediately so the UI isn't blank while Firebase loads
   try{
     const raw=localStorage.getItem(SAVE_KEY);
@@ -516,10 +518,11 @@ function loadState(){
   // Set up real-time listener — fires on load and on every change from either user
   firebase.database().ref('nflu_session').on('value',snapshot=>{
     const s=snapshot.val();
-    if(!s)return;
     _applyingRemoteState=true;
-    try{applyState(s);ra();renderBidTiles();}
-    finally{_applyingRemoteState=false;}
+    try{
+      // Only apply + re-render if Firebase has data; if empty, just unblock writes
+      if(s){applyState(s);ra();renderBidTiles();}
+    }finally{_applyingRemoteState=false;}
   });
   return picks.length>0||activeBids.length>0;
 }
