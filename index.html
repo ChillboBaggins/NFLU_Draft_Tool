@@ -166,6 +166,21 @@ body::before{content:'';position:fixed;inset:0;
 .m-actions{display:flex;gap:7px;justify-content:flex-end}
 .vi-val{color:#e8c84a}.vi-sv{color:#4ab8e8}.vi-op{color:#e8644a}.vi-so{color:#e8a44a}
 </style>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyDXv1dHPHFx1pIRpyBDXY3Ov30krE3by_s",
+    authDomain: "nflu-draft.firebaseapp.com",
+    databaseURL: "https://nflu-draft-default-rtdb.firebaseio.com",
+    projectId: "nflu-draft",
+    storageBucket: "nflu-draft.firebasestorage.app",
+    messagingSenderId: "286553753470",
+    appId: "1:286553753470:web:741a09b4897b60b34b152f"
+  };
+  firebase.initializeApp(firebaseConfig);
+</script>
 </head>
 <body>
 <div class="header">
@@ -463,40 +478,55 @@ const needStack=[];
 function pushNeedSnapshot(){needStack.push(Object.fromEntries(PLAYERS.map(p=>[p.name,p.roster_need||0])));}
 function popNeedSnapshot(){const s=needStack.pop();if(s)PLAYERS.forEach(p=>{if(s[p.name]!=null)p.roster_need=s[p.name];});}
 
-// ── Session Persistence (localStorage) ────────────────────────
+// ── Session Persistence (Firebase Realtime Database) ────────────────────────
 const SAVE_KEY='nflu_draft_2026';
-function saveState(){
-  try{
-    localStorage.setItem(SAVE_KEY,JSON.stringify({
-      picks:picks.map(pk=>({name:pk.name,display_name:pk.display_name,position:pk.position,price:pk.price,team:pk.team})),
-      sold:[...sold],
-      targets:[...targets],
-      activeBids:activeBids.map(b=>({id:b.id,playerName:b.player.name,bidAmt:b.bidAmt,teamName:b.teamName})),
-      bidIdSeq,
-      needStack,
-      pf
-    }));
-  }catch(e){}
+
+function applyState(s){
+  picks=s.picks?s.picks.map(pk=>{const p=PLAYERS.find(x=>x.name===pk.name)||{name:pk.name,display_name:pk.display_name,position:pk.position};return{...pk,player_obj:p};}):[];
+  sold.clear();if(s.sold)s.sold.forEach(n=>sold.add(n));
+  targets.clear();if(s.targets)s.targets.forEach(n=>targets.add(n));
+  activeBids=s.activeBids?s.activeBids.map(b=>{const p=PLAYERS.find(x=>x.name===b.playerName);return p?{id:b.id,player:p,bidAmt:b.bidAmt,teamName:b.teamName}:null;}).filter(Boolean):[];
+  if(s.bidIdSeq!=null)bidIdSeq=s.bidIdSeq;
+  needStack.length=0;if(s.needStack)s.needStack.forEach(snap=>needStack.push(snap));
+  if(s.pf)pf=s.pf;
 }
+
+function saveState(){
+  const state={
+    picks:picks.map(pk=>({name:pk.name,display_name:pk.display_name,position:pk.position,price:pk.price,team:pk.team})),
+    sold:[...sold],
+    targets:[...targets],
+    activeBids:activeBids.map(b=>({id:b.id,playerName:b.player.name,bidAmt:b.bidAmt,teamName:b.teamName})),
+    bidIdSeq,
+    needStack,
+    pf
+  };
+  firebase.database().ref('nflu_session').set(state);
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify(state));}catch(e){}
+}
+
 function loadState(){
+  // Apply localStorage immediately so the UI isn't blank while Firebase loads
   try{
     const raw=localStorage.getItem(SAVE_KEY);
-    if(!raw)return false;
-    const s=JSON.parse(raw);
-    if(s.picks) picks=s.picks.map(pk=>{const p=PLAYERS.find(x=>x.name===pk.name)||{name:pk.name,display_name:pk.display_name,position:pk.position};return{...pk,player_obj:p};});
-    if(s.sold) s.sold.forEach(n=>sold.add(n));
-    if(s.targets) s.targets.forEach(n=>targets.add(n));
-    if(s.activeBids) activeBids=s.activeBids.map(b=>{const p=PLAYERS.find(x=>x.name===b.playerName);return p?{id:b.id,player:p,bidAmt:b.bidAmt,teamName:b.teamName}:null;}).filter(Boolean);
-    if(s.bidIdSeq) bidIdSeq=s.bidIdSeq;
-    if(s.needStack) s.needStack.forEach(snap=>needStack.push(snap));
-    if(s.pf) pf=s.pf;
-    return picks.length>0||activeBids.length>0;
-  }catch(e){return false;}
+    if(raw){const s=JSON.parse(raw);applyState(s);}
+  }catch(e){}
+  // Set up real-time listener — fires on load and on every change from either user
+  firebase.database().ref('nflu_session').on('value',snapshot=>{
+    const s=snapshot.val();
+    if(!s)return;
+    applyState(s);
+    ra();
+    renderBidTiles();
+  });
+  return picks.length>0||activeBids.length>0;
 }
+
 function clearSession(){
   if(!confirm('Clear all logged picks, bids, and targets? This cannot be undone.'))return;
   picks=[];sold.clear();targets.clear();activeBids=[];bidIdSeq=0;needStack.length=0;pf='ALL';
   PLAYERS.forEach(p=>{p.roster_need=BASELINE_NEED[p.name]||0;});
+  firebase.database().ref('nflu_session').remove();
   localStorage.removeItem(SAVE_KEY);
   ra();renderBidTiles();
 }
