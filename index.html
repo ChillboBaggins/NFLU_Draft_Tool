@@ -518,10 +518,8 @@ function loadState(){
     const s=snapshot.val();
     if(!s)return;
     _applyingRemoteState=true;
-    applyState(s);
-    ra();
-    renderBidTiles();
-    _applyingRemoteState=false;
+    try{applyState(s);ra();renderBidTiles();}
+    finally{_applyingRemoteState=false;}
   });
   return picks.length>0||activeBids.length>0;
 }
